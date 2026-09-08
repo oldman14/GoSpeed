@@ -79,8 +79,102 @@ export class ChaseCamera {
     this.camera.updateProjectionMatrix();
   }
 
+  /**
+   * Showroom / Garage camera mode:
+   * Frames the car in the open area to the right of the 460px sidebar panel.
+   * Smoothly pans and zooms to target specific components (Body, Wheels, Spoiler, Exhaust).
+   */
+  public updateGarage(
+    dt: number,
+    vehiclePos: THREE.Vector3,
+    vehicleHeading: number,
+    partFocus: string,
+    kartYaw: number
+  ) {
+    this.targetFov = 50; // Focused, distortion-free showroom FOV
+    this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, this.targetFov, dt * 6);
+    this.camera.updateProjectionMatrix();
+
+    // The car is rotated by kartYaw relative to its base heading
+    const totalYaw = vehicleHeading + kartYaw;
+    const fwd = new THREE.Vector3(Math.sin(totalYaw), 0, Math.cos(totalYaw));
+    const right = new THREE.Vector3(Math.cos(totalYaw), 0, -Math.sin(totalYaw));
+    const up = new THREE.Vector3(0, 1, 0);
+
+    // Calculate part center & ideal camera viewpoint relative to kart
+    let localTargetOffset = new THREE.Vector3(0, 0.55, 0);
+    let camOffset = new THREE.Vector3(2.8, 1.6, 3.8); // 3/4 beauty view default
+
+    switch (partFocus) {
+      case 'BODY':
+      case 'LIVERY':
+        // Close-up on the front hood and livery patterns
+        localTargetOffset = new THREE.Vector3(0, 0.5, 0.9);
+        camOffset = new THREE.Vector3(1.6, 1.4, 2.8);
+        break;
+      case 'RIMS':
+        // Low-angle close-up of the front-left wheel and rim
+        localTargetOffset = new THREE.Vector3(-0.9, 0.38, 0.9);
+        camOffset = new THREE.Vector3(-2.2, 0.65, 1.5);
+        break;
+      case 'SPOILER':
+        // High rear-quarter view of the aerodynamic wing
+        localTargetOffset = new THREE.Vector3(0, 0.95, -1.2);
+        camOffset = new THREE.Vector3(1.8, 1.8, -2.6);
+        break;
+      case 'EXHAUST':
+        // Close-up rear center of the dual thrusters & flame glow
+        localTargetOffset = new THREE.Vector3(0, 0.5, -1.5);
+        camOffset = new THREE.Vector3(0.3, 0.8, -2.5);
+        break;
+      case 'NEON':
+        // Low ground-level side angle showing glowing underglow and accents
+        localTargetOffset = new THREE.Vector3(0, 0.25, 0);
+        camOffset = new THREE.Vector3(3.2, 0.5, 1.2);
+        break;
+      case 'OVERVIEW':
+      default:
+        // Full overview showcasing the complete car
+        localTargetOffset = new THREE.Vector3(0, 0.6, 0);
+        camOffset = new THREE.Vector3(3.2, 1.8, 4.2);
+        break;
+    }
+
+    // World target point
+    const worldLookAt = vehiclePos.clone().add(
+      fwd.clone().multiplyScalar(localTargetOffset.z)
+    ).add(
+      right.clone().multiplyScalar(localTargetOffset.x)
+    ).add(
+      up.clone().multiplyScalar(localTargetOffset.y)
+    );
+
+    // Compute world camera position using kart orientation
+    const desiredCamPos = vehiclePos.clone().add(
+      fwd.clone().multiplyScalar(camOffset.z)
+    ).add(
+      right.clone().multiplyScalar(camOffset.x)
+    ).add(
+      up.clone().multiplyScalar(camOffset.y)
+    );
+
+    // Now shift the camera so the car is framed to the RIGHT side of the screen
+    // (leaving the left 460px sidebar unobstructed)
+    const viewDir = desiredCamPos.clone().sub(worldLookAt).normalize();
+    const sideDir = new THREE.Vector3().crossVectors(viewDir, up).normalize();
+    // Shift camera slightly to the right of the line-of-sight
+    desiredCamPos.addScaledVector(sideDir, -0.65);
+
+    this.currentPos.lerp(desiredCamPos, dt * 5.0);
+    this.currentLookAt.lerp(worldLookAt, dt * 6.0);
+
+    this.camera.position.copy(this.currentPos);
+    this.camera.lookAt(this.currentLookAt);
+  }
+
   public resize(width: number, height: number) {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
   }
 }
+

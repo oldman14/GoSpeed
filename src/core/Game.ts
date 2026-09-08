@@ -29,8 +29,13 @@ export class Game {
   // Customization & Showroom
   public kartCustomization: KartCustomization;
   private garageAngle: number = 0;
+  private garagePartFocus: string = 'OVERVIEW';
+  private garageSpotlight!: THREE.SpotLight;
+  private garageFillLight!: THREE.PointLight;
 
   // Racers
+
+
   public playerVehicle!: KinematicVehicle;
   public playerMesh!: KartMesh;
 
@@ -108,7 +113,19 @@ export class Game {
 
     const hemiLight = new THREE.HemisphereLight(0x38bdf8, 0x1e293b, 1.2);
     this.scene.add(hemiLight);
+
+    // Garage High-Contrast Spotlight directly illuminating the showroom kart
+    this.garageSpotlight = new THREE.SpotLight(0xffffff, 4.5, 30, Math.PI * 0.35, 0.4, 1.0);
+    this.garageSpotlight.visible = false;
+    this.scene.add(this.garageSpotlight);
+    this.scene.add(this.garageSpotlight.target);
+
+    // Subtle cyan underglow rim light
+    this.garageFillLight = new THREE.PointLight(0x00f0ff, 2.5, 12);
+    this.garageFillLight.visible = false;
+    this.scene.add(this.garageFillLight);
   }
+
 
   private spawnRacers() {
     const startPoint = this.track.curve.getPointAt(0);
@@ -245,11 +262,46 @@ export class Game {
   public openGarage() {
     this.state = GameState.GARAGE;
     this.garageAngle = 0;
+    this.garagePartFocus = 'OVERVIEW';
+
+    // Position spotlight directly above kart
+    if (this.garageSpotlight && this.playerVehicle) {
+      const pos = this.playerVehicle.position;
+      this.garageSpotlight.position.set(pos.x + 2, pos.y + 6.5, pos.z + 3);
+      this.garageSpotlight.target.position.copy(pos);
+      this.garageSpotlight.visible = true;
+    }
+    if (this.garageFillLight && this.playerVehicle) {
+      const pos = this.playerVehicle.position;
+      this.garageFillLight.position.set(pos.x, pos.y + 0.3, pos.z);
+      this.garageFillLight.visible = true;
+    }
+
+    // Hide AI racers during garage preview to avoid clutter
+    for (const ai of this.aiMeshes) {
+      ai.group.visible = false;
+    }
   }
 
   public closeGarage() {
     this.state = GameState.WAITING;
-    this.playerMesh.group.rotation.y = 0;
+    this.playerMesh.showroomGroup.rotation.y = 0;
+
+    if (this.garageSpotlight) this.garageSpotlight.visible = false;
+    if (this.garageFillLight) this.garageFillLight.visible = false;
+
+    // Restore AI racers
+    for (const ai of this.aiMeshes) {
+      ai.group.visible = true;
+    }
+  }
+
+  public focusGaragePart(part: string) {
+    this.garagePartFocus = part;
+  }
+
+  public rotateGarageKart(deltaYaw: number) {
+    this.garageAngle += deltaYaw;
   }
 
   public updatePlayerCustomization(customization: KartCustomization) {
@@ -268,22 +320,21 @@ export class Game {
       this.raceTime += dt;
       this.updateRace(dt);
     } else if (this.state === GameState.GARAGE) {
-      // 3D Showroom rotation & showcase camera
-      this.garageAngle += dt * 0.45;
-      this.playerMesh.group.rotation.y = this.garageAngle;
+      // 3D Showroom rotation (gentle turntable spin unless user interacts)
+      this.garageAngle += dt * 0.35;
+      this.playerMesh.showroomGroup.rotation.y = this.garageAngle;
       this.playerMesh.update(dt);
 
-      const pos = this.playerVehicle.position;
-      const camDist = 5.6;
-      const camHeight = 2.0;
-      this.camera.camera.position.set(
-        pos.x + Math.sin(0.4) * camDist,
-        pos.y + camHeight,
-        pos.z + Math.cos(0.4) * camDist
+      // Showroom framing & dynamic part focusing camera
+      this.camera.updateGarage(
+        dt,
+        this.playerVehicle.position,
+        this.playerVehicle.heading,
+        this.garagePartFocus,
+        this.garageAngle
       );
-      this.camera.camera.lookAt(pos.x, pos.y + 0.65, pos.z);
     } else if (this.state === GameState.COUNTDOWN || this.state === GameState.WAITING) {
-      this.playerMesh.group.rotation.y = 0;
+      this.playerMesh.showroomGroup.rotation.y = 0;
       this.playerMesh.update(dt);
       for (const m of this.aiMeshes) m.update(dt);
       this.camera.update(dt, this.playerVehicle);
@@ -291,6 +342,7 @@ export class Game {
 
     this.renderer.render(this.scene, this.camera.camera);
   }
+
 
   private updateRace(dt: number) {
     // 1. Update Player (constrained to track boundaries)

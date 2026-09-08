@@ -55,6 +55,9 @@ export interface RacerProgress {
 }
 
 export type SpoilerStyle = 'GT_WING' | 'CYBER_FIN' | 'JET_PODS' | 'DUCKTAIL';
+export type LiveryPattern = 'CLEAN' | 'RACING_STRIPES' | 'CYBER_HEX' | 'LIGHTNING' | 'DRAGON_FLAME' | 'CARBON_WEAVE';
+export type RimStyle = 'SPORT_5SPOKE' | 'CYBER_TURBINE' | 'AERO_DISC' | 'WIRE_STAR';
+export type GaragePartFocus = 'OVERVIEW' | 'BODY' | 'LIVERY' | 'RIMS' | 'SPOILER' | 'EXHAUST' | 'NEON';
 
 export interface KartCustomization {
   presetName: string;
@@ -63,4 +66,8 @@ export interface KartCustomization {
   neonColor: number;
   exhaustColor: number;
   spoilerStyle: SpoilerStyle;
+  liveryPattern: LiveryPattern;
+  liveryColor: number;
+  rimStyle: RimStyle;
 }
+
