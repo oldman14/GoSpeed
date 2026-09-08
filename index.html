@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>GoSpeed - QQ Speed Arcade</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #05060b;
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+    }
+    #game-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    #hud {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    /* Start Overlay */
+    #start-screen {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle at center, rgba(15, 23, 42, 0.85) 0%, rgba(5, 6, 15, 0.96) 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      color: #fff;
+      pointer-events: auto;
+      backdrop-filter: blur(8px);
+    }
+    .title-logo {
+      font-size: 4rem;
+      font-weight: 900;
+      font-style: italic;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      background: linear-gradient(135deg, #00f0ff 0%, #ff0077 50%, #ffe600 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-shadow: 0 0 40px rgba(0, 240, 255, 0.6);
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      font-size: 1.1rem;
+      color: #94a3b8;
+      letter-spacing: 6px;
+      text-transform: uppercase;
+      margin-bottom: 30px;
+    }
+    .guide-card {
+      background: rgba(30, 41, 59, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 20px 30px;
+      max-width: 540px;
+      width: 90%;
+      margin-bottom: 30px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    }
+    .guide-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 10px 0;
+      font-size: 0.95rem;
+    }
+    .key-badge {
+      display: inline-block;
+      background: #0f172a;
+      border: 1px solid #38bdf8;
+      color: #38bdf8;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-family: monospace;
+      font-weight: bold;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+    }
+    .start-btn {
+      padding: 16px 48px;
+      font-size: 1.4rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: #fff;
+      background: linear-gradient(135deg, #00f0ff 0%, #0072ff 100%);
+      border: none;
+      border-radius: 40px;
+      cursor: pointer;
+      box-shadow: 0 0 30px rgba(0, 240, 255, 0.6);
+      transition: all 0.2s ease;
+    }
+    .start-btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 45px rgba(0, 240, 255, 0.9);
+    }
+    /* Touch controls */
+    #touch-controls {
+      display: none;
+      position: absolute;
+      bottom: 20px;
+      left: 0;
+      width: 100%;
+      padding: 0 20px;
+      justify-content: space-between;
+      pointer-events: auto;
+      z-index: 50;
+    }
+    .touch-btn-group {
+      display: flex;
+      gap: 15px;
+    }
+    .touch-circle-btn {
+      width: 65px;
+      height: 65px;
+      border-radius: 50%;
+      background: rgba(15, 23, 42, 0.7);
+      border: 2px solid rgba(0, 240, 255, 0.6);
+      color: #00f0ff;
+      font-size: 1.1rem;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(4px);
+    }
+    @media (pointer: coarse) {
+      #touch-controls {
+        display: flex;
+      }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game-canvas"></canvas>
+  <div id="hud"></div>
+
+  <div id="start-screen">
+    <div class="title-logo">GOSPEED</div>
+    <div class="subtitle">QQ SPEED ARCADE DRIFT RACER</div>
+
+    <div class="guide-card">
+      <div class="guide-row">
+        <span>Steer & Drive</span>
+        <div><span class="key-badge">WASD</span> or <span class="key-badge">ARROWS</span></div>
+      </div>
+      <div class="guide-row">
+        <span>Drift (Hold into corners)</span>
+        <div><span class="key-badge">SHIFT</span> or <span class="key-badge">SPACE</span></div>
+      </div>
+      <div class="guide-row">
+        <span>Mini-Boost / Double-Boost</span>
+        <div>Tap <span class="key-badge">W</span> or <span class="key-badge">UP</span> on drift exit</div>
+      </div>
+      <div class="guide-row">
+        <span>Nitro Tank (Hold / Tap)</span>
+        <div><span class="key-badge">CTRL</span> or <span class="key-badge">E</span></div>
+      </div>
+      <div class="guide-row" style="color: #f43f5e; font-weight: bold;">
+        <span>CWW Super Boost</span>
+        <span>Nitro ➔ Tap Double-Boost</span>
+      </div>
+    </div>
+
+    <button id="start-btn" class="start-btn">START RACE</button>
+  </div>
+
+  <div id="touch-controls">
+    <div class="touch-btn-group">
+      <div class="touch-circle-btn" id="btn-left">◀</div>
+      <div class="touch-circle-btn" id="btn-right">▶</div>
+    </div>
+    <div class="touch-btn-group">
+      <div class="touch-circle-btn" id="btn-drift" style="border-color: #f59e0b; color: #f59e0b;">DRIFT</div>
+      <div class="touch-circle-btn" id="btn-nitro" style="border-color: #ef4444; color: #ef4444;">NITRO</div>
+      <div class="touch-circle-btn" id="btn-gas" style="border-color: #10b981; color: #10b981;">GAS</div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
