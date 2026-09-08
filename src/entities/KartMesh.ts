@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { KinematicVehicle } from '../physics/KinematicVehicle';
-import { DriftState, BoostType } from '../types';
+import { DriftState, BoostType, KartCustomization, SpoilerStyle } from '../types';
 
 export interface KartTheme {
   primaryColor: number;
@@ -9,13 +9,65 @@ export interface KartTheme {
   exhaustColor: number;
 }
 
+export const KART_PRESETS: KartCustomization[] = [
+  {
+    presetName: 'Cyber Sonic',
+    primaryColor: 0x06b6d4, // Cyan
+    secondaryColor: 0x0f172a, // Deep Slate
+    neonColor: 0x00f0ff, // Electric Cyan
+    exhaustColor: 0x00f0ff,
+    spoilerStyle: 'GT_WING'
+  },
+  {
+    presetName: 'Shadow Viper',
+    primaryColor: 0xe11d48, // Crimson Red
+    secondaryColor: 0x18181b, // Jet Black
+    neonColor: 0xff0055, // Hot Crimson
+    exhaustColor: 0xff3b30,
+    spoilerStyle: 'CYBER_FIN'
+  },
+  {
+    presetName: 'Golden Phoenix',
+    primaryColor: 0xf59e0b, // Amber Gold
+    secondaryColor: 0x27272a, // Obsidian
+    neonColor: 0xffd700, // Bright Gold
+    exhaustColor: 0xffaa00,
+    spoilerStyle: 'JET_PODS'
+  },
+  {
+    presetName: 'Phantom Ghost',
+    primaryColor: 0x8b5cf6, // Royal Violet
+    secondaryColor: 0x09090b, // Midnight Black
+    neonColor: 0xd946ef, // Neon Magenta
+    exhaustColor: 0xa855f7,
+    spoilerStyle: 'DUCKTAIL'
+  },
+  {
+    presetName: 'Emerald Pulse',
+    primaryColor: 0x10b981, // Emerald Green
+    secondaryColor: 0x1e293b, // Gunmetal
+    neonColor: 0x34d399, // Toxic Neon Green
+    exhaustColor: 0x10b981,
+    spoilerStyle: 'CYBER_FIN'
+  }
+];
+
 export class KartMesh {
   public group: THREE.Group = new THREE.Group();
   public vehicle: KinematicVehicle;
+  public customization: KartCustomization;
 
   private frontLeftWheelGroup: THREE.Group = new THREE.Group();
   private frontRightWheelGroup: THREE.Group = new THREE.Group();
   private wheels: THREE.Mesh[] = [];
+
+  // Dynamic Materials for live customization
+  private bodyMat!: THREE.MeshStandardMaterial;
+  private trimMat!: THREE.MeshStandardMaterial;
+  private neonMat!: THREE.MeshBasicMaterial;
+  private underglowMat!: THREE.MeshBasicMaterial;
+  private rimMat!: THREE.MeshBasicMaterial;
+  private spoilerGroup: THREE.Group = new THREE.Group();
 
   // Thruster flames
   private leftFlame!: THREE.Mesh;
@@ -28,31 +80,46 @@ export class KartMesh {
   private sparkVelocities: THREE.Vector3[] = [];
   private maxSparks = 100;
 
-  constructor(vehicle: KinematicVehicle, theme: KartTheme) {
+  constructor(vehicle: KinematicVehicle, themeOrCustom?: KartTheme | KartCustomization) {
     this.vehicle = vehicle;
-    this.buildKartMesh(theme);
+    if (themeOrCustom && 'spoilerStyle' in themeOrCustom) {
+      this.customization = { ...themeOrCustom };
+    } else if (themeOrCustom) {
+      this.customization = {
+        presetName: 'Custom',
+        primaryColor: themeOrCustom.primaryColor,
+        secondaryColor: themeOrCustom.secondaryColor,
+        neonColor: themeOrCustom.neonColor,
+        exhaustColor: themeOrCustom.exhaustColor,
+        spoilerStyle: 'GT_WING',
+      };
+    } else {
+      this.customization = { ...KART_PRESETS[0] };
+    }
+
+    this.buildKartMesh();
     this.buildDriftSparks();
   }
 
-  private buildKartMesh(theme: KartTheme) {
+  private buildKartMesh() {
     // 1. Main Body Group
     const bodyGroup = new THREE.Group();
 
     // Body Material
-    const bodyMat = new THREE.MeshStandardMaterial({
-      color: theme.primaryColor,
+    this.bodyMat = new THREE.MeshStandardMaterial({
+      color: this.customization.primaryColor,
       metalness: 0.8,
       roughness: 0.25
     });
 
-    const trimMat = new THREE.MeshStandardMaterial({
-      color: theme.secondaryColor,
+    this.trimMat = new THREE.MeshStandardMaterial({
+      color: this.customization.secondaryColor,
       metalness: 0.9,
       roughness: 0.2
     });
 
-    const neonMat = new THREE.MeshBasicMaterial({
-      color: theme.neonColor
+    this.neonMat = new THREE.MeshBasicMaterial({
+      color: this.customization.neonColor
     });
 
     const glassMat = new THREE.MeshPhysicalMaterial({
@@ -66,7 +133,7 @@ export class KartMesh {
 
     // Main Chassis
     const chassisGeo = new THREE.BoxGeometry(1.5, 0.42, 3.2);
-    const chassis = new THREE.Mesh(chassisGeo, bodyMat);
+    const chassis = new THREE.Mesh(chassisGeo, this.bodyMat);
     chassis.position.y = 0.45;
     chassis.castShadow = true;
     bodyGroup.add(chassis);
@@ -75,14 +142,14 @@ export class KartMesh {
     const noseGeo = new THREE.ConeGeometry(0.85, 1.2, 4);
     noseGeo.rotateX(Math.PI * 0.5);
     noseGeo.rotateY(Math.PI * 0.25);
-    const nose = new THREE.Mesh(noseGeo, bodyMat);
+    const nose = new THREE.Mesh(noseGeo, this.bodyMat);
     nose.position.set(0, 0.38, 1.9);
     nose.scale.set(1.4, 0.4, 1.0);
     bodyGroup.add(nose);
 
     // Front Neon Splitter Lip
     const lipGeo = new THREE.BoxGeometry(1.6, 0.08, 0.3);
-    const lip = new THREE.Mesh(lipGeo, neonMat);
+    const lip = new THREE.Mesh(lipGeo, this.neonMat);
     lip.position.set(0, 0.25, 2.3);
     bodyGroup.add(lip);
 
@@ -103,43 +170,34 @@ export class KartMesh {
 
     // Rear Side Pods / Fenders
     const podGeo = new THREE.BoxGeometry(0.35, 0.4, 1.8);
-    const leftPod = new THREE.Mesh(podGeo, trimMat);
+    const leftPod = new THREE.Mesh(podGeo, this.trimMat);
     leftPod.position.set(-0.9, 0.5, -0.3);
-    const rightPod = new THREE.Mesh(podGeo, trimMat);
+    const rightPod = new THREE.Mesh(podGeo, this.trimMat);
     rightPod.position.set(0.9, 0.5, -0.3);
     bodyGroup.add(leftPod, rightPod);
 
     // Neon Accent Side Strips
     const stripGeo = new THREE.BoxGeometry(0.04, 0.05, 1.7);
-    const leftStrip = new THREE.Mesh(stripGeo, neonMat);
+    const leftStrip = new THREE.Mesh(stripGeo, this.neonMat);
     leftStrip.position.set(-1.08, 0.52, -0.3);
-    const rightStrip = new THREE.Mesh(stripGeo, neonMat);
+    const rightStrip = new THREE.Mesh(stripGeo, this.neonMat);
     rightStrip.position.set(1.08, 0.52, -0.3);
     bodyGroup.add(leftStrip, rightStrip);
 
-    // Rear Spoiler / Wing
-    const wingStrutGeo = new THREE.BoxGeometry(0.08, 0.45, 0.15);
-    const leftStrut = new THREE.Mesh(wingStrutGeo, trimMat);
-    leftStrut.position.set(-0.6, 0.85, -1.5);
-    const rightStrut = new THREE.Mesh(wingStrutGeo, trimMat);
-    rightStrut.position.set(0.6, 0.85, -1.5);
-
-    const wingGeo = new THREE.BoxGeometry(1.9, 0.08, 0.45);
-    const wing = new THREE.Mesh(wingGeo, bodyMat);
-    wing.position.set(0, 1.05, -1.55);
-    wing.rotation.x = -0.1;
-    bodyGroup.add(leftStrut, rightStrut, wing);
+    // Modular Rear Spoiler Wing
+    bodyGroup.add(this.spoilerGroup);
+    this.buildSpoiler(this.customization.spoilerStyle);
 
     // Underglow LED Strip
     const underglowGeo = new THREE.PlaneGeometry(1.3, 2.4);
     underglowGeo.rotateX(-Math.PI * 0.5);
-    const underglowMat = new THREE.MeshBasicMaterial({
-      color: theme.neonColor,
+    this.underglowMat = new THREE.MeshBasicMaterial({
+      color: this.customization.neonColor,
       transparent: true,
       opacity: 0.45,
       side: THREE.DoubleSide
     });
-    const underglow = new THREE.Mesh(underglowGeo, underglowMat);
+    const underglow = new THREE.Mesh(underglowGeo, this.underglowMat);
     underglow.position.y = 0.12;
     bodyGroup.add(underglow);
 
@@ -163,7 +221,7 @@ export class KartMesh {
     flameGeo.rotateX(-Math.PI * 0.5);
     flameGeo.translate(0, 0, -0.7);
     const flameMat = new THREE.MeshBasicMaterial({
-      color: theme.exhaustColor,
+      color: this.customization.exhaustColor,
       transparent: true,
       opacity: 0.85
     });
@@ -189,12 +247,12 @@ export class KartMesh {
 
     const rimGeo = new THREE.TorusGeometry(0.24, 0.04, 8, 20);
     rimGeo.rotateY(Math.PI * 0.5);
-    const rimMat = new THREE.MeshBasicMaterial({ color: theme.neonColor });
+    this.rimMat = new THREE.MeshBasicMaterial({ color: this.customization.neonColor });
 
     const createWheel = () => {
       const wGroup = new THREE.Group();
       const tire = new THREE.Mesh(wheelGeo, tireMat);
-      const rim = new THREE.Mesh(rimGeo, rimMat);
+      const rim = new THREE.Mesh(rimGeo, this.rimMat);
       wGroup.add(tire, rim);
       this.wheels.push(tire);
       return wGroup;
@@ -219,6 +277,98 @@ export class KartMesh {
 
     this.group.add(bodyGroup);
     this.group.add(this.frontLeftWheelGroup, this.frontRightWheelGroup, rlWheel, rrWheel);
+  }
+
+  public buildSpoiler(style: SpoilerStyle) {
+    while (this.spoilerGroup.children.length > 0) {
+      this.spoilerGroup.remove(this.spoilerGroup.children[0]);
+    }
+
+    if (style === 'GT_WING') {
+      const wingStrutGeo = new THREE.BoxGeometry(0.08, 0.45, 0.15);
+      const leftStrut = new THREE.Mesh(wingStrutGeo, this.trimMat);
+      leftStrut.position.set(-0.6, 0.85, -1.5);
+      const rightStrut = new THREE.Mesh(wingStrutGeo, this.trimMat);
+      rightStrut.position.set(0.6, 0.85, -1.5);
+
+      const wingGeo = new THREE.BoxGeometry(1.9, 0.08, 0.45);
+      const wing = new THREE.Mesh(wingGeo, this.bodyMat);
+      wing.position.set(0, 1.05, -1.55);
+      wing.rotation.x = -0.1;
+
+      const endplateGeo = new THREE.BoxGeometry(0.04, 0.25, 0.5);
+      const leftEp = new THREE.Mesh(endplateGeo, this.neonMat);
+      leftEp.position.set(-0.95, 1.05, -1.55);
+      const rightEp = new THREE.Mesh(endplateGeo, this.neonMat);
+      rightEp.position.set(0.95, 1.05, -1.55);
+
+      this.spoilerGroup.add(leftStrut, rightStrut, wing, leftEp, rightEp);
+    } else if (style === 'CYBER_FIN') {
+      const finGeo = new THREE.BoxGeometry(0.06, 0.65, 0.7);
+      const leftFin = new THREE.Mesh(finGeo, this.bodyMat);
+      leftFin.position.set(-0.6, 0.95, -1.4);
+      leftFin.rotation.z = 0.15;
+
+      const rightFin = new THREE.Mesh(finGeo, this.bodyMat);
+      rightFin.position.set(0.6, 0.95, -1.4);
+      rightFin.rotation.z = -0.15;
+
+      const tipGeo = new THREE.BoxGeometry(0.08, 0.06, 0.65);
+      const leftTip = new THREE.Mesh(tipGeo, this.neonMat);
+      leftTip.position.set(-0.65, 1.28, -1.4);
+      const rightTip = new THREE.Mesh(tipGeo, this.neonMat);
+      rightTip.position.set(0.65, 1.28, -1.4);
+
+      this.spoilerGroup.add(leftFin, rightFin, leftTip, rightTip);
+    } else if (style === 'JET_PODS') {
+      const podGeo = new THREE.CylinderGeometry(0.18, 0.22, 0.8, 16);
+      podGeo.rotateX(Math.PI * 0.5);
+      const leftPod = new THREE.Mesh(podGeo, this.trimMat);
+      leftPod.position.set(-0.5, 0.85, -1.5);
+      const rightPod = new THREE.Mesh(podGeo, this.trimMat);
+      rightPod.position.set(0.5, 0.85, -1.5);
+
+      const ringGeo = new THREE.TorusGeometry(0.23, 0.03, 8, 16);
+      const leftRing = new THREE.Mesh(ringGeo, this.neonMat);
+      leftRing.position.set(-0.5, 0.85, -1.9);
+      const rightRing = new THREE.Mesh(ringGeo, this.neonMat);
+      rightRing.position.set(0.5, 0.85, -1.9);
+
+      const foilGeo = new THREE.BoxGeometry(1.4, 0.06, 0.35);
+      const foil = new THREE.Mesh(foilGeo, this.bodyMat);
+      foil.position.set(0, 0.88, -1.5);
+
+      this.spoilerGroup.add(leftPod, rightPod, leftRing, rightRing, foil);
+    } else if (style === 'DUCKTAIL') {
+      const tailGeo = new THREE.BoxGeometry(1.65, 0.16, 0.4);
+      const tail = new THREE.Mesh(tailGeo, this.bodyMat);
+      tail.position.set(0, 0.72, -1.6);
+      tail.rotation.x = -0.35;
+
+      const stripGeo = new THREE.BoxGeometry(1.68, 0.05, 0.08);
+      const strip = new THREE.Mesh(stripGeo, this.neonMat);
+      strip.position.set(0, 0.8, -1.78);
+
+      this.spoilerGroup.add(tail, strip);
+    }
+  }
+
+  public applyCustomization(customization: KartCustomization) {
+    this.customization = { ...customization };
+    this.bodyMat.color.setHex(customization.primaryColor);
+    this.trimMat.color.setHex(customization.secondaryColor);
+    this.neonMat.color.setHex(customization.neonColor);
+    this.underglowMat.color.setHex(customization.neonColor);
+    this.rimMat.color.setHex(customization.neonColor);
+
+    if (this.leftFlame && this.leftFlame.material) {
+      (this.leftFlame.material as THREE.MeshBasicMaterial).color.setHex(customization.exhaustColor);
+    }
+    if (this.rightFlame && this.rightFlame.material) {
+      (this.rightFlame.material as THREE.MeshBasicMaterial).color.setHex(customization.exhaustColor);
+    }
+
+    this.buildSpoiler(customization.spoilerStyle);
   }
 
   private buildDriftSparks() {

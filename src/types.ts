@@ -53,3 +53,14 @@ export interface RacerProgress {
   lastLapTime: number;
   bestLapTime: number;
 }
+
+export type SpoilerStyle = 'GT_WING' | 'CYBER_FIN' | 'JET_PODS' | 'DUCKTAIL';
+
+export interface KartCustomization {
+  presetName: string;
+  primaryColor: number;
+  secondaryColor: number;
+  neonColor: number;
+  exhaustColor: number;
+  spoilerStyle: SpoilerStyle;
+}

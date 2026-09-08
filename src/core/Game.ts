@@ -1,16 +1,17 @@
 import * as THREE from 'three';
 import { KinematicVehicle } from '../physics/KinematicVehicle';
-import { KartMesh, KartTheme } from '../entities/KartMesh';
+import { KartMesh, KART_PRESETS } from '../entities/KartMesh';
 import { TrackBuilder } from '../track/TrackBuilder';
 import { AIRacer } from '../ai/AIRacer';
 import { ChaseCamera } from '../camera/ChaseCamera';
 import { InputManager } from '../input/InputManager';
 import { SoundSystem } from '../audio/SoundSystem';
 import { HUD } from '../ui/HUD';
-import { RacerProgress } from '../types';
+import { RacerProgress, KartCustomization } from '../types';
 
 export enum GameState {
   WAITING = 'WAITING',
+  GARAGE = 'GARAGE',
   COUNTDOWN = 'COUNTDOWN',
   RACING = 'RACING',
   FINISHED = 'FINISHED'
@@ -24,6 +25,10 @@ export class Game {
   public inputManager: InputManager;
   public soundSystem: SoundSystem;
   public hud: HUD;
+
+  // Customization & Showroom
+  public kartCustomization: KartCustomization;
+  private garageAngle: number = 0;
 
   // Racers
   public playerVehicle!: KinematicVehicle;
@@ -41,6 +46,18 @@ export class Game {
   private lastTime: number = 0;
 
   constructor() {
+    // Load or initialize saved customization
+    const saved = localStorage.getItem('gospeed_kart_customization');
+    if (saved) {
+      try {
+        this.kartCustomization = JSON.parse(saved);
+      } catch {
+        this.kartCustomization = { ...KART_PRESETS[0] };
+      }
+    } else {
+      this.kartCustomization = { ...KART_PRESETS[0] };
+    }
+
     // 1. Scene & Renderer
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0e172a); // Rich twilight blue sky
@@ -106,13 +123,7 @@ export class Game {
       .addScaledVector(tangent, 12);
     this.playerVehicle = new KinematicVehicle(playerStartPos, heading);
 
-    const playerTheme: KartTheme = {
-      primaryColor: 0x06b6d4, // Cyan
-      secondaryColor: 0x0f172a,
-      neonColor: 0x00f0ff,
-      exhaustColor: 0x00f0ff
-    };
-    this.playerMesh = new KartMesh(this.playerVehicle, playerTheme);
+    this.playerMesh = new KartMesh(this.playerVehicle, this.kartCustomization);
     this.scene.add(this.playerMesh.group);
 
     this.racersProgress.push({
@@ -231,6 +242,22 @@ export class Game {
     nextStep();
   }
 
+  public openGarage() {
+    this.state = GameState.GARAGE;
+    this.garageAngle = 0;
+  }
+
+  public closeGarage() {
+    this.state = GameState.WAITING;
+    this.playerMesh.group.rotation.y = 0;
+  }
+
+  public updatePlayerCustomization(customization: KartCustomization) {
+    this.kartCustomization = { ...customization };
+    this.playerMesh.applyCustomization(this.kartCustomization);
+    localStorage.setItem('gospeed_kart_customization', JSON.stringify(this.kartCustomization));
+  }
+
   private loop(timestamp: number) {
     requestAnimationFrame((t) => this.loop(t));
 
@@ -240,8 +267,23 @@ export class Game {
     if (this.state === GameState.RACING) {
       this.raceTime += dt;
       this.updateRace(dt);
+    } else if (this.state === GameState.GARAGE) {
+      // 3D Showroom rotation & showcase camera
+      this.garageAngle += dt * 0.45;
+      this.playerMesh.group.rotation.y = this.garageAngle;
+      this.playerMesh.update(dt);
+
+      const pos = this.playerVehicle.position;
+      const camDist = 5.6;
+      const camHeight = 2.0;
+      this.camera.camera.position.set(
+        pos.x + Math.sin(0.4) * camDist,
+        pos.y + camHeight,
+        pos.z + Math.cos(0.4) * camDist
+      );
+      this.camera.camera.lookAt(pos.x, pos.y + 0.65, pos.z);
     } else if (this.state === GameState.COUNTDOWN || this.state === GameState.WAITING) {
-      // Idle engine animations
+      this.playerMesh.group.rotation.y = 0;
       this.playerMesh.update(dt);
       for (const m of this.aiMeshes) m.update(dt);
       this.camera.update(dt, this.playerVehicle);
