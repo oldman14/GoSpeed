@@ -8,13 +8,16 @@ export class KinematicVehicle {
   public velocity: THREE.Vector3 = new THREE.Vector3();
 
   // Kinematic parameters
-  public speed: number = 0; // m/s
-  public heading: number = 0; // yaw angle in radians
+  public speed: number = 0; // m/s forward
+  public heading: number = 0; // Chassis visual yaw angle in radians
+  public trajectoryHeading: number = 0; // Motion direction in radians (QQ Speed decoupled model)
+  public driftAngle: number = 0; // Relative visual slip angle between chassis & trajectory
+  
   public pitch: number = 0; // suspension dive / squat
   public roll: number = 0; // lateral body lean
 
-  public steerAngle: number = 0;
-  public driftSlipAngle: number = 0;
+  public steerAngle: number = 0; // Front wheels visual steering
+  public driftSlipAngle: number = 0; // For particle & HUD systems
   public driftState: DriftState = DriftState.NONE;
   public isGrounded: boolean = true;
 
@@ -29,7 +32,7 @@ export class KinematicVehicle {
   public baseAcceleration: number = 34; // m/s^2
   public brakeDeceleration: number = 48;
   public naturalFriction: number = 7.5;
-  public baseSteerSensitivity: number = 1.35; // smooth, confident steering
+  public baseSteerSensitivity: number = 1.35; // smooth grip steering
   public gravity: number = 32;
 
   // System
@@ -37,11 +40,11 @@ export class KinematicVehicle {
 
   // Reusable vectors for zero allocation
   private upVec = new THREE.Vector3(0, 1, 0);
-  private targetVelocity = new THREE.Vector3();
 
   constructor(initialPosition: THREE.Vector3, initialHeading: number = 0) {
     this.position.copy(initialPosition);
     this.heading = initialHeading;
+    this.trajectoryHeading = initialHeading;
     this.boostSystem = new BoostSystem();
     this.updateOrientation();
   }
@@ -56,17 +59,17 @@ export class KinematicVehicle {
       this.boostSystem.handleNitroActivate();
     }
 
-    // 2. Input Filtering (Steering Inertia & Weight)
+    // 2. Input Filtering (Steering Inertia)
     const steerTarget = inputs.steering;
     const steerSpeed = steerTarget !== 0 ? 5.5 : 8.5; // Smooth turn-in, faster recentering
     this.filteredSteer = THREE.MathUtils.lerp(this.filteredSteer, steerTarget, dt * steerSpeed);
 
-    // 3. Speed-Sensitive Steering for Normal Driving
+    // 3. Speed-Sensitive Steering for Normal Grip Driving
     const speedKmh = this.getSpeedKmh();
     const speedSteerFactor = THREE.MathUtils.clamp(1.0 - (speedKmh / 320) * 0.55, 0.42, 1.0);
     const effectiveSensitivity = this.baseSteerSensitivity * speedSteerFactor;
 
-    // 4. Handle Drift State Transition
+    // 4. Drift State Machine (QQ Speed / KartRider Style)
     const minDriftSpeed = 12; // ~43 km/h
     if (inputs.drift && Math.abs(inputs.steering) > 0.15 && this.speed > minDriftSpeed && this.isGrounded) {
       if (this.driftState === DriftState.NONE) {
@@ -76,50 +79,54 @@ export class KinematicVehicle {
       this.driftState = DriftState.NONE;
     }
 
-    // 5. Calculate Steering & Drift Slip Angles
+    // 5. Calculate Steering & Trajectory vs Heading (The Decoupled QQ Speed Drift Formula)
     const targetVisualSteer = -this.filteredSteer * 0.45;
     this.steerAngle = THREE.MathUtils.lerp(this.steerAngle, targetVisualSteer, dt * 10);
 
-    let targetDriftSlip = 0;
-    let turnRate = 0;
-
     if (this.driftState !== DriftState.NONE) {
-      // Balanced, fluid QQ Speed drift model
       const driftDir = this.driftState === DriftState.DRIFTING_LEFT ? 1 : -1;
-      
-      // Relative steering: +1 is steering into drift (tighten), -1 is counter-steering (widen)
-      const steerIntoDrift = this.driftState === DriftState.DRIFTING_LEFT 
+
+      // Steer factor relative to drift direction:
+      // +1 = holding steering into the turn (tighten arc)
+      // -1 = counter-steering against the turn (widen arc / pull nose)
+      const steerInto = this.driftState === DriftState.DRIFTING_LEFT 
         ? -this.filteredSteer 
         : this.filteredSteer;
 
-      // Progressive slip angle (14 to 22 degrees based on steer input)
-      targetDriftSlip = driftDir * (0.24 + Math.max(0, steerIntoDrift) * 0.12);
+      // Trajectory curve rate: smooth, controlled arc (0.5 to 1.1 rad/s)
+      // Player can counter-steer to push car wide or hold into turn to hug the apex!
+      const trajectoryArcRate = THREE.MathUtils.clamp(0.75 + steerInto * 0.42, 0.28, 1.15);
+      const baseTurnSpeed = 1.05; // rad/s (~60 deg/s)
+      const speedFactor = THREE.MathUtils.clamp(this.speed / 36, 0.65, 1.1);
 
-      // Controlled, smooth turn rate:
-      // Counter-steering allows widening the line cleanly without spinning out
-      const steerControlFactor = THREE.MathUtils.clamp(0.68 + steerIntoDrift * 0.42, 0.28, 1.15);
-      const baseDriftTurnRate = 1.12; // rad/s (approx 64 deg/s)
-      const speedScale = THREE.MathUtils.clamp(this.speed / 38, 0.6, 1.12);
+      this.trajectoryHeading += driftDir * baseTurnSpeed * trajectoryArcRate * speedFactor * dt;
 
-      turnRate = driftDir * baseDriftTurnRate * steerControlFactor * speedScale;
+      // Target visual chassis drift angle:
+      // In QQ Speed, chassis angles inward by 20 to 30 degrees while kart slides forward
+      const targetAngle = 0.38 + Math.max(0, steerInto) * 0.14; // ~22 to 30 degrees
+      this.driftAngle = THREE.MathUtils.lerp(this.driftAngle, targetAngle, dt * 4.5);
+
+      // Chassis heading = trajectory direction + visual drift offset
+      this.heading = this.trajectoryHeading + driftDir * this.driftAngle;
+      this.driftSlipAngle = driftDir * this.driftAngle;
+
     } else {
-      // Normal grip steering
-      turnRate = -this.filteredSteer * effectiveSensitivity * (this.speed / Math.max(this.baseMaxSpeed * 0.4, 15));
+      // Normal Grip Driving: Heading and Trajectory are unified
+      const gripTurnRate = -this.filteredSteer * effectiveSensitivity * (this.speed / Math.max(this.baseMaxSpeed * 0.4, 15));
+      this.trajectoryHeading += gripTurnRate * dt;
+      this.heading = this.trajectoryHeading;
+
+      // Drift angle snaps back to zero upon exit
+      this.driftAngle = THREE.MathUtils.lerp(this.driftAngle, 0, dt * 8.5);
+      this.driftSlipAngle = THREE.MathUtils.lerp(this.driftSlipAngle, 0, dt * 8.5);
     }
-
-    // Smooth drift slip transition (no violent snapping)
-    const slipLerpSpeed = this.driftState !== DriftState.NONE ? 4.2 : 6.0;
-    this.driftSlipAngle = THREE.MathUtils.lerp(this.driftSlipAngle, targetDriftSlip, dt * slipLerpSpeed);
-
-    // Apply yaw rotation
-    this.heading += turnRate * dt;
 
     // 6. Boost Multipliers & Terminal Velocity
     const boostMultiplier = this.boostSystem.getBoostMultiplier();
     const effectiveMaxSpeed = this.baseMaxSpeed * boostMultiplier;
     const effectiveAccel = this.baseAcceleration * Math.max(boostMultiplier, 1.15);
 
-    // 7. Progressive Acceleration & Inertia Curve
+    // 7. Longitudinal Acceleration & Engine Inertia
     if (inputs.throttle > 0) {
       if (this.speed < effectiveMaxSpeed) {
         const speedRatio = Math.min(1.0, Math.abs(this.speed) / effectiveMaxSpeed);
@@ -136,7 +143,7 @@ export class KinematicVehicle {
         if (this.speed < -14) this.speed = -14;
       }
     } else {
-      // Natural rolling friction & wind drag
+      // Coasting friction
       if (this.speed > 0) {
         this.speed = Math.max(0, this.speed - this.naturalFriction * dt);
       } else if (this.speed < 0) {
@@ -144,24 +151,20 @@ export class KinematicVehicle {
       }
     }
 
-    // Drift speed retention (QQ Speed preserves high momentum in drift)
+    // QQ Speed momentum retention in drift (only minor speed scrub)
     if (this.driftState !== DriftState.NONE && !this.boostSystem.isBoosting()) {
-      this.speed -= dt * 2.5; // very gentle speed bleed
+      this.speed -= dt * 2.2;
     }
 
-    // 8. Lateral Tire Inertia & Centrifugal Momentum
-    const movementHeading = this.heading - this.driftSlipAngle * 0.55;
-    this.targetVelocity.set(
-      Math.sin(movementHeading) * this.speed,
+    // 8. Velocity calculation along Trajectory Heading
+    // The velocity vector follows trajectoryHeading smoothly
+    this.velocity.set(
+      Math.sin(this.trajectoryHeading) * this.speed,
       0,
-      Math.cos(movementHeading) * this.speed
+      Math.cos(this.trajectoryHeading) * this.speed
     );
 
-    // Lateral grip: 5.5 in drift gives a smooth, predictable glide along the racing line
-    const tireGrip = (this.driftState !== DriftState.NONE) ? 5.5 : 9.5;
-    this.velocity.lerp(this.targetVelocity, dt * tireGrip);
-
-    // Apply horizontal translation
+    // Apply translation
     this.position.x += this.velocity.x * dt;
     this.position.z += this.velocity.z * dt;
 
@@ -172,10 +175,10 @@ export class KinematicVehicle {
     const targetPitch = THREE.MathUtils.clamp(-accelForce * 0.0024, -0.045, 0.065);
     this.pitch = THREE.MathUtils.lerp(this.pitch, targetPitch, dt * 6.5);
 
-    // Centrifugal body roll: subtle, natural lean
+    // Subtle body lean: in drift, kart rolls outward against centrifugal force
     const lateralG = -this.filteredSteer * (this.speed / this.baseMaxSpeed);
     const targetRoll = (this.driftState !== DriftState.NONE)
-      ? -this.driftSlipAngle * 0.28
+      ? -this.driftSlipAngle * 0.25
       : lateralG * 0.16;
     this.roll = THREE.MathUtils.lerp(this.roll, targetRoll, dt * 7.0);
 
@@ -212,8 +215,7 @@ export class KinematicVehicle {
   }
 
   private updateOrientation(groundNormal?: THREE.Vector3) {
-    const visualYaw = this.heading - this.driftSlipAngle;
-    const euler = new THREE.Euler(this.pitch, visualYaw, this.roll, 'YXZ');
+    const euler = new THREE.Euler(this.pitch, this.heading, this.roll, 'YXZ');
     this.quaternion.setFromEuler(euler);
 
     if (groundNormal && this.isGrounded) {

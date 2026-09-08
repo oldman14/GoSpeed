@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { KinematicVehicle } from '../physics/KinematicVehicle';
-import { BoostType } from '../types';
+import { BoostType, DriftState } from '../types';
 
 export class ChaseCamera {
   public camera: THREE.PerspectiveCamera;
@@ -17,24 +17,27 @@ export class ChaseCamera {
   }
 
   public update(dt: number, vehicle: KinematicVehicle) {
-    // 1. Calculate Target Position with smooth trailing inertia
-    const visualYaw = vehicle.heading - vehicle.driftSlipAngle * 0.35;
-    const forward = new THREE.Vector3(Math.sin(visualYaw), 0, Math.cos(visualYaw));
+    // In QQ Speed, camera tracks trajectory during drift so player has a clear view ahead
+    const camAngle = (vehicle.driftState !== DriftState.NONE)
+      ? vehicle.trajectoryHeading + (vehicle.heading - vehicle.trajectoryHeading) * 0.25
+      : vehicle.heading;
+
+    const forward = new THREE.Vector3(Math.sin(camAngle), 0, Math.cos(camAngle));
 
     // Follow distance increases slightly with speed
     const speedRatio = Math.abs(vehicle.speed) / vehicle.baseMaxSpeed;
     const followDist = 7.0 + speedRatio * 1.5;
-    const height = 3.4 + (vehicle.isGrounded ? 0 : 0.8);
+    const height = 3.3 + (vehicle.isGrounded ? 0 : 0.8);
 
     const targetPos = vehicle.position.clone()
       .addScaledVector(forward, -followDist)
       .add(new THREE.Vector3(0, height, 0));
 
-    // Weighty camera lag (dt * 6.5 instead of 10)
+    // Smooth camera inertia
     this.currentPos.lerp(targetPos, dt * 6.5);
     this.camera.position.copy(this.currentPos);
 
-    // 2. Look At Target (Smooth tracking ahead of the vehicle)
+    // Look At Target (Ahead along trajectory)
     const targetLookAt = vehicle.position.clone()
       .addScaledVector(forward, 11)
       .add(new THREE.Vector3(0, 1.2, 0));
@@ -42,7 +45,7 @@ export class ChaseCamera {
     this.currentLookAt.lerp(targetLookAt, dt * 8.0);
     this.camera.lookAt(this.currentLookAt);
 
-    // 3. Dynamic FOV Warp
+    // Dynamic FOV Warp
     const isBoosting = vehicle.boostSystem.isBoosting();
     const boostType = vehicle.boostSystem.getActiveBoostType();
 
