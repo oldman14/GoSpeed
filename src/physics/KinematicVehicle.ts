@@ -71,6 +71,7 @@ export class KinematicVehicle {
 
     // 4. Drift State Machine (QQ Speed / KartRider Style)
     const minDriftSpeed = 12; // ~43 km/h
+    const wasDrifting = this.driftState !== DriftState.NONE;
     if (inputs.drift && Math.abs(inputs.steering) > 0.15 && this.speed > minDriftSpeed && this.isGrounded) {
       if (this.driftState === DriftState.NONE) {
         this.driftState = inputs.steering < 0 ? DriftState.DRIFTING_LEFT : DriftState.DRIFTING_RIGHT;
@@ -103,22 +104,31 @@ export class KinematicVehicle {
 
       // Target visual chassis drift angle:
       // In QQ Speed, chassis angles inward by 20 to 30 degrees while kart slides forward
-      const targetAngle = 0.38 + Math.max(0, steerInto) * 0.14; // ~22 to 30 degrees
-      this.driftAngle = THREE.MathUtils.lerp(this.driftAngle, targetAngle, dt * 4.5);
+      // Pulling the nose (counter-steering) reduces the drift angle
+      const targetAngle = THREE.MathUtils.clamp(0.36 + steerInto * 0.22, 0.10, 0.50);
+      this.driftAngle = THREE.MathUtils.lerp(this.driftAngle, targetAngle, dt * 5.0);
 
       // Chassis heading = trajectory direction + visual drift offset
       this.heading = this.trajectoryHeading + driftDir * this.driftAngle;
       this.driftSlipAngle = driftDir * this.driftAngle;
 
     } else {
-      // Normal Grip Driving: Heading and Trajectory are unified
-      const gripTurnRate = -this.filteredSteer * effectiveSensitivity * (this.speed / Math.max(this.baseMaxSpeed * 0.4, 15));
-      this.trajectoryHeading += gripTurnRate * dt;
-      this.heading = this.trajectoryHeading;
+      if (wasDrifting) {
+        // Exiting drift: preserve the nose heading so it NEVER snaps straight!
+        // The movement trajectory seamlessly adopts the vehicle's exit heading.
+        this.trajectoryHeading = this.heading;
+        this.driftAngle = 0;
+        this.driftSlipAngle = 0;
+      }
 
-      // Drift angle snaps back to zero upon exit
-      this.driftAngle = THREE.MathUtils.lerp(this.driftAngle, 0, dt * 8.5);
-      this.driftSlipAngle = THREE.MathUtils.lerp(this.driftSlipAngle, 0, dt * 8.5);
+      // Normal Grip Driving: Heading is steered, and Trajectory follows heading
+      const gripTurnRate = -this.filteredSteer * effectiveSensitivity * (this.speed / Math.max(this.baseMaxSpeed * 0.4, 15));
+      this.heading += gripTurnRate * dt;
+      this.trajectoryHeading = this.heading;
+
+      // Drift angle stays zero in grip mode
+      this.driftAngle = THREE.MathUtils.lerp(this.driftAngle, 0, dt * 10.0);
+      this.driftSlipAngle = THREE.MathUtils.lerp(this.driftSlipAngle, 0, dt * 10.0);
     }
 
     // 6. Boost Multipliers & Terminal Velocity
