@@ -190,6 +190,15 @@ export class Game {
       this.soundSystem.playBoostSound(event.type);
     };
 
+    this.playerVehicle.onWallHit = (impact) => {
+      this.soundSystem.playWallHitSound(impact);
+      this.camera.addTrauma(Math.min(0.5, impact * 0.04));
+    };
+
+    this.playerVehicle.onRescued = () => {
+      this.hud.showAlert('RESCUED TO TRACK', '#f43f5e');
+    };
+
     this.inputManager.onThrottleTap = () => {
       if (this.state === GameState.RACING) {
         this.playerVehicle.boostSystem.handleThrottleTap(this.playerVehicle.isGrounded);
@@ -242,11 +251,9 @@ export class Game {
   }
 
   private updateRace(dt: number) {
-    const groundHeightFn = (pos: THREE.Vector3) => this.track.getGroundHeight(pos);
-
-    // 1. Update Player
+    // 1. Update Player (constrained to track boundaries)
     const playerInputs = this.inputManager.getInputs();
-    this.playerVehicle.update(dt, playerInputs, groundHeightFn);
+    this.playerVehicle.update(dt, playerInputs, this.track);
     this.playerMesh.update(dt);
 
     // 2. Check Speed Pads
@@ -255,11 +262,11 @@ export class Game {
     // Check jump ramp elevation (at spline u ≈ 0.82)
     this.checkRamps(this.playerVehicle);
 
-    // 3. Update AI Bots
+    // 3. Update AI Bots (also constrained to track boundaries)
     for (let i = 0; i < this.aiRacers.length; i++) {
       const bot = this.aiRacers[i];
       const botInputs = bot.update(dt, this.playerVehicle);
-      bot.vehicle.update(dt, botInputs, groundHeightFn);
+      bot.vehicle.update(dt, botInputs, this.track);
       this.aiMeshes[i].update(dt);
       this.checkSpeedPads(bot.vehicle);
       this.checkRamps(bot.vehicle);

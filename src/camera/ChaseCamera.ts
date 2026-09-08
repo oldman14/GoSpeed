@@ -9,11 +9,16 @@ export class ChaseCamera {
 
   private baseFov: number = 64;
   private targetFov: number = 64;
+  private trauma: number = 0;
 
   constructor(fov: number, aspect: number, near: number, far: number) {
     this.baseFov = fov;
     this.targetFov = fov;
     this.camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
+  }
+
+  public addTrauma(amount: number) {
+    this.trauma = Math.min(1.0, this.trauma + amount);
   }
 
   public update(dt: number, vehicle: KinematicVehicle) {
@@ -36,6 +41,15 @@ export class ChaseCamera {
     // Smooth camera inertia
     this.currentPos.lerp(targetPos, dt * 6.5);
     this.camera.position.copy(this.currentPos);
+
+    // Apply screen shake trauma
+    if (this.trauma > 0) {
+      const shake = this.trauma * this.trauma * 0.35;
+      this.camera.position.x += (Math.random() - 0.5) * shake;
+      this.camera.position.y += (Math.random() - 0.5) * shake;
+      this.camera.position.z += (Math.random() - 0.5) * shake;
+      this.trauma = Math.max(0, this.trauma - dt * 3.0);
+    }
 
     // Look At Target (Ahead along trajectory)
     const targetLookAt = vehicle.position.clone()

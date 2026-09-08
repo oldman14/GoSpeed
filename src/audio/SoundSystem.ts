@@ -184,6 +184,29 @@ export class SoundSystem {
     osc.start(t);
     osc.stop(t + (isFinal ? 0.6 : 0.3));
   }
+
+  public playWallHitSound(intensity: number = 1) {
+    if (!this.ctx || !this.isInitialized || this.isMuted) return;
+
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    // Punchy metallic barrier thud & resonance
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(180, t);
+    osc.frequency.exponentialRampToValueAtTime(35, t + 0.18);
+
+    const vol = Math.min(0.32, 0.08 + intensity * 0.025);
+    gain.gain.setValueAtTime(vol, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+
+    osc.start(t);
+    osc.stop(t + 0.18);
+  }
 }
 
 function THREE_Clamp(val: number, min: number, max: number): number {

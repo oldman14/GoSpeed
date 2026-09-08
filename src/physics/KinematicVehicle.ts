@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { VehicleInputs, DriftState } from '../types';
 import { BoostSystem } from '../mechanics/BoostSystem';
+import { TrackBuilder } from '../track/TrackBuilder';
 
 export class KinematicVehicle {
   public position: THREE.Vector3 = new THREE.Vector3();
@@ -22,6 +23,10 @@ export class KinematicVehicle {
   public isGrounded: boolean = true;
 
   public verticalVelocity: number = 0;
+
+  // Event callbacks
+  public onWallHit?: (intensity: number) => void;
+  public onRescued?: () => void;
 
   // Filtered inputs for weight and inertia
   private filteredSteer: number = 0;
@@ -52,7 +57,7 @@ export class KinematicVehicle {
   public update(
     dt: number,
     inputs: VehicleInputs,
-    getGroundHeight: (pos: THREE.Vector3) => { height: number; normal: THREE.Vector3 }
+    track: TrackBuilder
   ) {
     // 1. Check Nitro input
     if (inputs.nitro) {
@@ -178,6 +183,55 @@ export class KinematicVehicle {
     this.position.x += this.velocity.x * dt;
     this.position.z += this.velocity.z * dt;
 
+    // 8b. Track Boundary Enforcement & Physical Barrier Collision
+    const barrier = track.constrainVehicle(this.position, 12.8);
+
+    if (barrier.isOutOfBounds) {
+      // Automatic safety net rescue: reset back onto track spline facing forward
+      this.position.set(barrier.splineX, barrier.roadY + 0.4, barrier.splineZ);
+      this.verticalVelocity = 0;
+      this.isGrounded = true;
+      this.heading = Math.atan2(barrier.tangentX, barrier.tangentZ);
+      this.trajectoryHeading = this.heading;
+      this.speed = Math.max(16, this.speed * 0.5);
+      this.driftState = DriftState.NONE;
+      this.driftAngle = 0;
+      this.onRescued?.();
+    } else if (barrier.hitWall) {
+      // Wall normal points inward into track
+      const vDotN = this.velocity.x * barrier.wallNormalX + this.velocity.z * barrier.wallNormalZ;
+
+      // If moving toward the wall (vDotN < 0 because normal points inward)
+      if (vDotN < 0) {
+        // Elastic / inelastic bounce along wall normal
+        const restitution = 0.22;
+        this.velocity.x -= (1 + restitution) * vDotN * barrier.wallNormalX;
+        this.velocity.z -= (1 + restitution) * vDotN * barrier.wallNormalZ;
+
+        // Speed scrub based on angle of attack
+        const impactSpeed = Math.abs(vDotN);
+        const speedLoss = Math.min(0.35, (impactSpeed / Math.max(this.speed, 1)) * 0.4);
+        this.speed = Math.max(10, this.speed * (1.0 - speedLoss));
+
+        // Re-align trajectory heading to deflected velocity
+        this.trajectoryHeading = Math.atan2(this.velocity.x, this.velocity.z);
+
+        // Nudge chassis heading away from barrier so nose doesn't point into the wall
+        this.heading = THREE.MathUtils.lerp(this.heading, this.trajectoryHeading, dt * 10);
+
+        // If hard impact: cancel drift (QQ Speed 撞墙断漂)
+        if (impactSpeed > 5.0 && this.driftState !== DriftState.NONE) {
+          this.driftState = DriftState.NONE;
+          this.driftAngle = 0;
+        }
+
+        this.onWallHit?.(impactSpeed);
+      } else {
+        // Wall glance / slide
+        this.speed = Math.max(10, this.speed - dt * 8.0);
+      }
+    }
+
     // 9. Suspension Weight Transfer (Pitch & Roll)
     const accelForce = (this.speed - this.prevSpeed) / Math.max(dt, 0.001);
     this.prevSpeed = this.speed;
@@ -193,7 +247,7 @@ export class KinematicVehicle {
     this.roll = THREE.MathUtils.lerp(this.roll, targetRoll, dt * 7.0);
 
     // 10. Ground Raycast & Vertical Physics
-    const groundInfo = getGroundHeight(this.position);
+    const groundInfo = track.getGroundHeight(this.position);
     const targetY = groundInfo.height;
 
     if (this.position.y > targetY + 0.15) {

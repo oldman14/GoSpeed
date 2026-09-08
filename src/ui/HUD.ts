@@ -272,6 +272,23 @@ export class HUD {
     }, 800);
   }
 
+  public showAlert(text: string, color: string = '#00f0ff') {
+    const textEl = document.getElementById('hud-combo-text');
+    if (textEl && this.comboPopup) {
+      textEl.innerText = text;
+      textEl.style.color = color;
+
+      this.comboPopup.style.opacity = '1';
+      this.comboPopup.style.transform = 'translate(-50%, -50%) scale(1.35)';
+
+      if (this.comboTimeout) clearTimeout(this.comboTimeout);
+      this.comboTimeout = window.setTimeout(() => {
+        this.comboPopup.style.opacity = '0';
+        this.comboPopup.style.transform = 'translate(-50%, -50%) scale(0.8)';
+      }, 1200);
+    }
+  }
+
   public update(
     playerVehicle: KinematicVehicle,
     racersProgress: RacerProgress[],

@@ -7,10 +7,30 @@ export interface SpeedPadLocation {
   mesh: THREE.Mesh;
 }
 
-interface TrackSample {
+export interface TrackSample {
   x: number;
   y: number;
   z: number;
+  tangentX: number;
+  tangentZ: number;
+  binormalX: number;
+  binormalZ: number;
+  u: number;
+}
+
+export interface BarrierConstraint {
+  hitWall: boolean;
+  wallNormalX: number;
+  wallNormalZ: number;
+  penetration: number;
+  lateralOffset: number;
+  roadY: number;
+  isOutOfBounds: boolean;
+  splineX: number;
+  splineY: number;
+  splineZ: number;
+  tangentX: number;
+  tangentZ: number;
 }
 
 export class TrackBuilder {
@@ -25,15 +45,29 @@ export class TrackBuilder {
   public trackWidth: number = 24; // meters wide
   public totalLength: number = 0;
 
-  // Optimized ground height look-up table (LUT)
-  private samples: TrackSample[] = [];
-  private trackWidthSq: number;
+  // Optimized ground height & boundary look-up table (LUT)
+  public samples: TrackSample[] = [];
   private static readonly upNormal = new THREE.Vector3(0, 1, 0);
+
+  // Cached barrier constraint result to prevent per-frame GC allocations
+  private barrierConstraint: BarrierConstraint = {
+    hitWall: false,
+    wallNormalX: 0,
+    wallNormalZ: 0,
+    penetration: 0,
+    lateralOffset: 0,
+    roadY: 0,
+    isOutOfBounds: false,
+    splineX: 0,
+    splineY: 0,
+    splineZ: 0,
+    tangentX: 0,
+    tangentZ: 0,
+  };
 
   constructor() {
     this.curve = this.createTrackSpline();
     this.totalLength = this.curve.getLength();
-    this.trackWidthSq = (this.trackWidth * 0.65) ** 2;
     this.precomputeSamples();
   }
 
@@ -56,10 +90,25 @@ export class TrackBuilder {
   }
 
   private precomputeSamples() {
-    const count = 150;
+    const count = 400; // Dense samples along ~1200m track (~3m per sample)
+    this.samples = [];
     for (let i = 0; i < count; i++) {
-      const pt = this.curve.getPointAt(i / count);
-      this.samples.push({ x: pt.x, y: pt.y, z: pt.z });
+      const u = i / count;
+      const pt = this.curve.getPointAt(u);
+      const tangent = this.curve.getTangentAt(u).normalize();
+      // Binormal perpendicular to tangent and up vector (0,1,0), pointing right
+      const binormalX = tangent.z;
+      const binormalZ = -tangent.x;
+      this.samples.push({
+        x: pt.x,
+        y: pt.y,
+        z: pt.z,
+        tangentX: tangent.x,
+        tangentZ: tangent.z,
+        binormalX,
+        binormalZ,
+        u,
+      });
     }
   }
 
@@ -87,7 +136,7 @@ export class TrackBuilder {
 
     const halfWidth = this.trackWidth * 0.5;
     const curbWidth = 2.0;
-    const barrierHeight = 1.4;
+    const barrierHeight = 2.0;
 
     for (let i = 0; i <= sampleCount; i++) {
       const u = i / sampleCount;
@@ -149,8 +198,8 @@ export class TrackBuilder {
         const bIdx = i * 4;
         barIndex.push(bIdx, bIdx + 1, bIdx + 4);
         barIndex.push(bIdx + 1, bIdx + 5, bIdx + 4);
-        barIndex.push(bIdx + 2, bIdx + 6, bIdx + 3);
-        barIndex.push(bIdx + 3, bIdx + 6, bIdx + 7);
+        barIndex.push(bIdx + 2, bIdx + 3, bIdx + 6);
+        barIndex.push(bIdx + 3, bIdx + 7, bIdx + 6);
       }
     }
 
@@ -172,24 +221,21 @@ export class TrackBuilder {
     barrierGeo.setIndex(barIndex);
     barrierGeo.computeVertexNormals();
 
-    // Road Texture
+    // High-Contrast Cyber Asphalt Texture
     const roadCanvas = document.createElement('canvas');
     roadCanvas.width = 512;
     roadCanvas.height = 512;
     const ctx = roadCanvas.getContext('2d')!;
-    ctx.fillStyle = '#1e293b';
+
+    ctx.fillStyle = '#0a0e17';
     ctx.fillRect(0, 0, 512, 512);
 
-    ctx.strokeStyle = '#334155';
-    ctx.lineWidth = 2;
-    for (let y = 0; y < 512; y += 32) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(512, y);
-      ctx.stroke();
+    ctx.fillStyle = '#111827';
+    for (let r = 0; r < 1400; r++) {
+      ctx.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
     }
 
-    // Outer Edge Lines
+    // Outer Edge Glowing Cyan Bands
     ctx.strokeStyle = '#00f0ff';
     ctx.lineWidth = 14;
     ctx.beginPath();
@@ -246,11 +292,30 @@ export class TrackBuilder {
     this.curbsMesh = new THREE.Mesh(curbGeo, curbMat);
     scene.add(this.curbsMesh);
 
-    // Barriers
+    // Barriers: Holographic Neon Energy Forcefield
+    const barCanvas = document.createElement('canvas');
+    barCanvas.width = 128;
+    barCanvas.height = 128;
+    const bCtx = barCanvas.getContext('2d')!;
+    bCtx.fillStyle = 'rgba(6, 182, 212, 0.45)';
+    bCtx.fillRect(0, 0, 128, 128);
+    // Glowing horizontal energy beams
+    bCtx.fillStyle = '#00f0ff';
+    bCtx.fillRect(0, 12, 128, 14);
+    bCtx.fillRect(0, 56, 128, 10);
+    bCtx.fillRect(0, 94, 128, 10);
+    // Bright white top edge rail
+    bCtx.fillStyle = '#ffffff';
+    bCtx.fillRect(0, 118, 128, 10);
+    const barTex = new THREE.CanvasTexture(barCanvas);
+    barTex.wrapS = THREE.RepeatWrapping;
+    barTex.wrapT = THREE.RepeatWrapping;
+    barTex.repeat.set(120, 1);
+
     const barMat = new THREE.MeshBasicMaterial({
-      color: 0x00e1ff,
+      map: barTex,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.88,
       side: THREE.DoubleSide
     });
     this.barriersMesh = new THREE.Mesh(barrierGeo, barMat);
@@ -446,14 +511,20 @@ export class TrackBuilder {
     scene.add(this.sceneryGroup);
   }
 
-  // Fast O(N) lookup without any runtime object allocations
-  public getGroundHeight(pos: THREE.Vector3): { height: number; normal: THREE.Vector3 } {
-    let minDistanceSq = Infinity;
-    let bestY = 0;
+  // Fast continuous track boundary enforcement and physical barrier clamping
+  public constrainVehicle(pos: THREE.Vector3, maxHalfWidth: number = 12.8): BarrierConstraint {
+    const res = this.barrierConstraint;
+    res.hitWall = false;
+    res.isOutOfBounds = false;
+    res.penetration = 0;
+
     const px = pos.x;
     const pz = pos.z;
     const samples = this.samples;
     const len = samples.length;
+
+    let minDistanceSq = Infinity;
+    let bestIdx = 0;
 
     for (let i = 0; i < len; i++) {
       const s = samples[i];
@@ -462,14 +533,95 @@ export class TrackBuilder {
       const dSq = dx * dx + dz * dz;
       if (dSq < minDistanceSq) {
         minDistanceSq = dSq;
-        bestY = s.y;
+        bestIdx = i;
       }
     }
 
-    if (minDistanceSq <= this.trackWidthSq) {
-      return { height: bestY, normal: TrackBuilder.upNormal };
+    const s0 = samples[bestIdx];
+    const sNext = samples[(bestIdx + 1) % len];
+    const sPrev = samples[(bestIdx - 1 + len) % len];
+
+    // Determine closer segment: (sPrev, s0) or (s0, sNext)
+    const segNext_dx = sNext.x - s0.x;
+    const segNext_dz = sNext.z - s0.z;
+    const dotNext = (px - s0.x) * segNext_dx + (pz - s0.z) * segNext_dz;
+
+    let segA = s0;
+    let segB = sNext;
+    if (dotNext < 0) {
+      segA = sPrev;
+      segB = s0;
     }
 
-    return { height: 0, normal: TrackBuilder.upNormal };
+    const segDx = segB.x - segA.x;
+    const segDy = segB.y - segA.y;
+    const segDz = segB.z - segA.z;
+    const segLenSq = segDx * segDx + segDz * segDz;
+
+    let t = 0;
+    if (segLenSq > 0.0001) {
+      t = ((px - segA.x) * segDx + (pz - segA.z) * segDz) / segLenSq;
+      t = Math.max(0, Math.min(1, t));
+    }
+
+    // Exact continuous closest point on track spline
+    const cx = segA.x + t * segDx;
+    const cy = segA.y + t * segDy;
+    const cz = segA.z + t * segDz;
+
+    const segLen = Math.sqrt(segLenSq);
+    const tx = segLen > 0.0001 ? segDx / segLen : segA.tangentX;
+    const tz = segLen > 0.0001 ? segDz / segLen : segA.tangentZ;
+
+    // Binormal pointing to right side (+: right, -: left)
+    const bx = tz;
+    const bz = -tx;
+
+    // Vector from spline to vehicle
+    const rX = px - cx;
+    const rZ = pz - cz;
+
+    // Signed lateral distance along binormal
+    const latOffset = rX * bx + rZ * bz;
+    const absLat = Math.abs(latOffset);
+
+    res.lateralOffset = latOffset;
+    res.roadY = cy;
+    res.splineX = cx;
+    res.splineY = cy;
+    res.splineZ = cz;
+    res.tangentX = tx;
+    res.tangentZ = tz;
+
+    // 1. Extreme Out-of-bounds check (e.g. fallen off world or >32m from track)
+    const distToCenter = Math.sqrt(rX * rX + rZ * rZ);
+    if (distToCenter > 32.0 || pos.y < -3.0) {
+      res.isOutOfBounds = true;
+      return res;
+    }
+
+    // 2. Barrier Wall Collision & Positional Clamp
+    if (absLat > maxHalfWidth) {
+      res.hitWall = true;
+      res.penetration = absLat - maxHalfWidth;
+      const wallSide = latOffset >= 0 ? 1 : -1;
+
+      // Normal points from wall inward toward the track center
+      res.wallNormalX = -wallSide * bx;
+      res.wallNormalZ = -wallSide * bz;
+
+      // Strictly clamp vehicle position inside the barrier
+      const clampedLat = wallSide * maxHalfWidth;
+      pos.x = cx + bx * clampedLat;
+      pos.z = cz + bz * clampedLat;
+    }
+
+    return res;
+  }
+
+  // Continuous ground height with zero per-frame object allocations
+  public getGroundHeight(pos: THREE.Vector3): { height: number; normal: THREE.Vector3 } {
+    const c = this.constrainVehicle(pos, 50.0);
+    return { height: c.roadY, normal: TrackBuilder.upNormal };
   }
 }
