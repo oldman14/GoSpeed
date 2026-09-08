@@ -17,29 +17,29 @@ export class ChaseCamera {
   }
 
   public update(dt: number, vehicle: KinematicVehicle) {
-    // 1. Calculate Target Position based on vehicle heading
-    const visualYaw = vehicle.heading - vehicle.driftSlipAngle * 0.4;
+    // 1. Calculate Target Position with smooth trailing inertia
+    const visualYaw = vehicle.heading - vehicle.driftSlipAngle * 0.35;
     const forward = new THREE.Vector3(Math.sin(visualYaw), 0, Math.cos(visualYaw));
 
     // Follow distance increases slightly with speed
-    const speedRatio = vehicle.speed / vehicle.baseMaxSpeed;
-    const followDist = 6.8 + speedRatio * 1.6;
-    const height = 3.2 + (vehicle.isGrounded ? 0 : 0.8);
+    const speedRatio = Math.abs(vehicle.speed) / vehicle.baseMaxSpeed;
+    const followDist = 7.0 + speedRatio * 1.5;
+    const height = 3.4 + (vehicle.isGrounded ? 0 : 0.8);
 
     const targetPos = vehicle.position.clone()
       .addScaledVector(forward, -followDist)
       .add(new THREE.Vector3(0, height, 0));
 
-    // Damping position
-    this.currentPos.lerp(targetPos, dt * 10);
+    // Weighty camera lag (dt * 6.5 instead of 10)
+    this.currentPos.lerp(targetPos, dt * 6.5);
     this.camera.position.copy(this.currentPos);
 
-    // 2. Look At Target (Ahead of the vehicle)
+    // 2. Look At Target (Smooth tracking ahead of the vehicle)
     const targetLookAt = vehicle.position.clone()
-      .addScaledVector(forward, 12)
+      .addScaledVector(forward, 11)
       .add(new THREE.Vector3(0, 1.2, 0));
 
-    this.currentLookAt.lerp(targetLookAt, dt * 12);
+    this.currentLookAt.lerp(targetLookAt, dt * 8.0);
     this.camera.lookAt(this.currentLookAt);
 
     // 3. Dynamic FOV Warp
@@ -48,17 +48,17 @@ export class ChaseCamera {
 
     if (isBoosting) {
       if (boostType === BoostType.CWW_BOOST) {
-        this.targetFov = 86; // Extreme CWW rush!
+        this.targetFov = 85;
       } else if (boostType === BoostType.NITRO || boostType === BoostType.WCW_BOOST) {
-        this.targetFov = 78;
+        this.targetFov = 77;
       } else {
-        this.targetFov = 72; // Mini-boost
+        this.targetFov = 71;
       }
     } else {
-      this.targetFov = this.baseFov + speedRatio * 4;
+      this.targetFov = this.baseFov + speedRatio * 3.5;
     }
 
-    this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, this.targetFov, dt * 6);
+    this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, this.targetFov, dt * 5);
     this.camera.updateProjectionMatrix();
   }
 
